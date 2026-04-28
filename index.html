@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Story Reader</title>
+
+<style>
+body {
+    font-family: "Bookman Old Style", Georgia, serif;
+    max-width: 800px;
+    margin: auto;
+    padding: 20px;
+    background: #8B00B8;
+    color: #000;
+}
+
+textarea {
+    width: 100%;
+    height: 200px;
+    background: #B0C4DE;
+    color: #000;
+    border: 1px solid #666;
+}
+
+#story {
+    white-space: pre-wrap;
+    margin-top: 20px;
+    font-size: 18px;
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    line-height: 1.6;
+}
+
+button, select, input {
+    margin: 5px;
+    padding: 8px 12px;
+}
+
+/* MOON BUTTONS */
+.moon {
+    background: #EBA937;
+    border: none;
+    color: #1a1a1a;
+    font-weight: bold;
+    cursor: pointer;
+    width: 80px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.new { border-radius: 50%; }
+.crescent { border-radius: 50% 0 0 50%; }
+.gibbous { border-radius: 0 50% 50% 0; }
+.full { border-radius: 10px; }
+.void { border-radius: 0; }
+
+/* STAR BUTTONS */
+.star {
+    background: #EBA937;
+    border: none;
+    color: #1a1a1a;
+    font-weight: bold;
+    cursor: pointer;
+    width: 90px;
+    height: 45px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    clip-path: polygon(
+        50% 0%,
+        61% 35%,
+        98% 35%,
+        68% 57%,
+        79% 91%,
+        50% 70%,
+        21% 91%,
+        32% 57%,
+        2% 35%,
+        39% 35%
+    );
+}
+
+/* highlight */
+.highlight {
+    padding: 0 2px;
+}
+
+/* dark mode ONLY text boxes */
+body.dark textarea,
+body.dark #story {
+    background: #1e1e1e;
+    color: #e0e0e0;
+}
+
+#themeBtn {
+    font-size: 18px;
+}
+</style>
+</head>
+
+<body>
+
+<h2>Story Reader</h2>
+
+<textarea id="input"></textarea><br>
+
+<button class="moon new" onclick="loadStory()">Load</button>
+<button class="moon crescent" onclick="prevPage()">Prev</button>
+<button class="moon gibbous" onclick="nextPage()">Next</button>
+
+<button class="moon full" onclick="startReading()">Read</button>
+<button class="star" onclick="pauseReading()">Pause</button>
+<button class="star" onclick="stopReading()">Stop</button>
+
+<button class="moon void" onclick="toggleDark()">🌙</button>
+
+<br>
+
+<label>Font:</label>
+<select onchange="changeFont(this.value)">
+    <option value="'Bookman Old Style', Georgia, serif">Bookman</option>
+    <option value="Georgia, serif">Georgia</option>
+    <option value="Times New Roman, serif">Times</option>
+    <option value="Arial, sans-serif">Arial</option>
+</select>
+
+<label>Font Size:</label>
+<button onclick="changeSize(-2)">A-</button>
+<button onclick="changeSize(2)">A+</button>
+
+<br>
+
+<label>Background:</label>
+<input type="color" id="bgPicker" onchange="changeBG(this.value)">
+
+<label>Text Colour:</label>
+<input type="color" id="textPicker" onchange="changeText(this.value)">
+
+<button class="moon full" onclick="toggleSpeed()">
+Speed: <span id="speedLabel">1x</span>
+</button>
+
+<label>Voice:</label>
+<select id="voiceSelect"></select>
+
+<p id="pageInfo"></p>
+
+<div id="story"></div>
+
+<script>
+let pages = [];
+let words = [];
+let current = 0;
+let wordIndex = 0;
+
+let speed = 1;
+let synth = window.speechSynthesis;
+let voices = [];
+
+let textColor = "#000";
+let highlightColor = "#ffff00";
+
+let isPaused = false;
+
+/* ---------- STORY ---------- */
+function loadStory() {
+    let text = document.getElementById("input").value.trim();
+    words = text.split(/\s+/);
+
+    pages = [];
+    for (let i = 0; i < words.length; i += 150) {
+        pages.push(words.slice(i, i + 150).join(" "));
+    }
+
+    current = 0;
+    wordIndex = 0;
+    showPage();
+}
+
+function showPage() {
+    let el = document.getElementById("story");
+    el.style.color = textColor;
+    el.innerText = pages[current] || "";
+
+    document.getElementById("pageInfo").innerText =
+        `Page ${current + 1} / ${pages.length}`;
+}
+
+/* ---------- FONT ---------- */
+function changeFont(font) {
+    document.getElementById("story").style.fontFamily = font;
+}
+
+function changeSize(amount) {
+    let el = document.getElementById("story");
+    let size = parseInt(window.getComputedStyle(el).fontSize);
+    el.style.fontSize = (size + amount) + "px";
+}
+
+/* ---------- BACKGROUND ---------- */
+function changeBG(color) {
+    document.getElementById("story").style.background = color;
+}
+
+/* ---------- TEXT COLOR + AUTO HIGHLIGHT INVERSE ---------- */
+function changeText(color) {
+    textColor = color;
+
+    document.getElementById("story").style.color = color;
+
+    let rgb = hexToRgb(color);
+    highlightColor = rgbToHex(255 - rgb.r, 255 - rgb.g, 255 - rgb.b);
+}
+
+/* ---------- SPEED ---------- */
+function toggleSpeed() {
+    speed += 0.25;
+    if (speed > 2) speed = 0.75;
+    document.getElementById("speedLabel").innerText = speed + "x";
+}
+
+/* ---------- VOICES ---------- */
+function loadVoices() {
+    voices = synth.getVoices();
+
+    let select = document.getElementById("voiceSelect");
+    select.innerHTML = "";
+
+    voices.forEach((v,i)=>{
+        let opt = document.createElement("option");
+        opt.value = i;
+        opt.textContent = `${v.name} (${v.lang})`;
+        select.appendChild(opt);
+    });
+}
+
+synth.onvoiceschanged = loadVoices;
+window.addEventListener("load", ()=>setTimeout(loadVoices,300));
+
+/* ---------- SPEECH + HIGHLIGHT ---------- */
+function speakFromIndex() {
+    let text = words.slice(wordIndex).join(" ");
+    let utter = new SpeechSynthesisUtterance(text);
+
+    let v = voices[document.getElementById("voiceSelect").value];
+    if (v) utter.voice = v;
+
+    utter.rate = speed;
+
+    utter.onboundary = (e)=>{
+        if (e.name === "word") {
+            wordIndex++;
+        }
+    };
+
+    utter.onend = ()=>{
+        if (!isPaused) {
+            current++;
+            wordIndex = 0;
+            if (current < pages.length) {
+                showPage();
+                speakFromIndex();
+            }
+        }
+    };
+
+    synth.speak(utter);
+}
+
+function startReading(){
+    isPaused = false;
+    synth.cancel();
+    speakFromIndex();
+}
+
+function pauseReading(){
+    isPaused = true;
+    synth.pause();
+}
+
+function stopReading(){
+    isPaused = false;
+    synth.cancel();
+    wordIndex = 0;
+}
+
+/* ---------- NAV ---------- */
+function nextPage(){
+    if(current < pages.length-1){
+        current++;
+        wordIndex = 0;
+        showPage();
+    }
+}
+
+function prevPage(){
+    if(current > 0){
+        current--;
+        wordIndex = 0;
+        showPage();
+    }
+}
+
+/* ---------- DARK MODE ---------- */
+function toggleDark(){
+    document.body.classList.toggle("dark");
+}
+
+/* ---------- HELPERS ---------- */
+function hexToRgb(hex){
+    let c = hex.replace("#","");
+    let n = parseInt(c,16);
+    return {
+        r:(n>>16)&255,
+        g:(n>>8)&255,
+        b:n&255
+    };
+}
+
+function rgbToHex(r,g,b){
+    return "#" + [r,g,b].map(x =>
+        x.toString(16).padStart(2,"0")
+    ).join("");
+}
+</script>
+
+</body>
+</html>
